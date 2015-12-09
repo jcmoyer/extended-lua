@@ -44,7 +44,8 @@ static const char *const luaX_tokens [] = {
     "return", "then", "true", "until", "while",
     "//", "..", "...", "==", ">=", "<=", "~=",
     "<<", ">>", "::", "<eof>",
-    "<number>", "<integer>", "<name>", "<string>"
+    "<number>", "<integer>", "<name>", "<string>",
+    "@", "->"
 };
 
 
@@ -469,8 +470,16 @@ static int llex (LexState *ls, SemInfo *seminfo) {
         next(ls);
         break;
       }
-      case '-': {  /* '-' or '--' (comment) */
+      case '@': {
         next(ls);
+        return TK_LAMBDA;
+      }
+      case '-': {  /* '-' or '--' (comment) or '->' (right arrow) */
+        next(ls);
+        if (ls->current == '>') {
+          next(ls);
+          return TK_RIGHTARROW;
+        }
         if (ls->current != '-') return '-';
         /* else is a comment */
         next(ls);

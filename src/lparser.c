@@ -55,6 +55,8 @@ typedef struct BlockCnt {
 } BlockCnt;
 
 
+static void retstat (LexState *ls);
+
 
 /*
 ** prototypes for recursive non-terminal functions
@@ -744,13 +746,13 @@ static void constructor (LexState *ls, expdesc *t) {
 
 
 
-static void parlist (LexState *ls) {
+static void parlist (LexState *ls, int terminator) {
   /* parlist -> [ param { ',' param } ] */
   FuncState *fs = ls->fs;
   Proto *f = fs->f;
   int nparams = 0;
   f->is_vararg = 0;
-  if (ls->t.token != ')') {  /* is 'parlist' not empty? */
+  if (ls->t.token != terminator) {  /* is 'parlist' not empty? */
     do {
       switch (ls->t.token) {
         case TK_NAME: {  /* param -> NAME */
@@ -785,11 +787,33 @@ static void body (LexState *ls, expdesc *e, int ismethod, int line) {
     new_localvarliteral(ls, "self");  /* create 'self' parameter */
     adjustlocalvars(ls, 1);
   }
-  parlist(ls);
+  parlist(ls, ')');
   checknext(ls, ')');
   statlist(ls);
   new_fs.f->lastlinedefined = ls->linenumber;
   check_match(ls, TK_END, TK_FUNCTION, line);
+  codeclosure(ls, e);
+  close_func(ls);
+}
+
+
+static void lambdaexp (LexState *ls, expdesc *e, int ismethod, int line) {
+  /* lambdaexp -> '@(' parlist -> explist ')' */
+  FuncState new_fs;
+  BlockCnt bl;
+  new_fs.f = addprototype(ls);
+  new_fs.f->linedefined = line;
+  open_func(ls, &new_fs, &bl);
+  checknext(ls, '(');
+  if (ismethod) {
+    new_localvarliteral(ls, "self");  /* create 'self' parameter */
+    adjustlocalvars(ls, 1);
+  }
+  parlist(ls, TK_RIGHTARROW);
+  checknext(ls, TK_RIGHTARROW);
+  retstat(ls);
+  checknext(ls, ')');
+  new_fs.f->lastlinedefined = ls->linenumber;
   codeclosure(ls, e);
   close_func(ls);
 }
@@ -831,6 +855,11 @@ static void funcargs (LexState *ls, expdesc *f, int line) {
     case TK_STRING: {  /* funcargs -> STRING */
       codestring(ls, &args, ls->t.seminfo.ts);
       luaX_next(ls);  /* must use 'seminfo' before 'next' */
+      break;
+    }
+    case TK_LAMBDA: {
+      luaX_next(ls);
+      lambdaexp(ls, &args, 0, ls->linenumber);
       break;
     }
     default: {
@@ -911,7 +940,7 @@ static void suffixedexp (LexState *ls, expdesc *v) {
         funcargs(ls, v, line);
         break;
       }
-      case '(': case TK_STRING: case '{': {  /* funcargs */
+      case '(': case TK_STRING: case '{': case TK_LAMBDA: {  /* funcargs */
         luaK_exp2nextreg(fs, v);
         funcargs(ls, v, line);
         break;
@@ -924,7 +953,7 @@ static void suffixedexp (LexState *ls, expdesc *v) {
 
 static void simpleexp (LexState *ls, expdesc *v) {
   /* simpleexp -> FLT | INT | STRING | NIL | TRUE | FALSE | ... |
-                  constructor | FUNCTION body | suffixedexp */
+                  constructor | FUNCTION body | lambdaexp | suffixedexp */
   switch (ls->t.token) {
     case TK_FLT: {
       init_exp(v, VKFLT, 0);
@@ -967,6 +996,11 @@ static void simpleexp (LexState *ls, expdesc *v) {
     case TK_FUNCTION: {
       luaX_next(ls);
       body(ls, v, 0, ls->linenumber);
+      return;
+    }
+    case TK_LAMBDA: {
+      luaX_next(ls);
+      lambdaexp(ls, v, 0, ls->linenumber);
       return;
     }
     default: {
