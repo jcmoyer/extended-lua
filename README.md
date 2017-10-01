@@ -4,7 +4,7 @@ implements non-standard extensions to the language. The official Lua website is
 
 # Lambda Expressions
 
-Base version: `lua-5.3.2`
+Base version: `lua-5.3.4`
 
 ### Summary
 
